@@ -1,0 +1,6 @@
+wandb/
+runs/
+__pycache__
+.venv
+*.onnx
+dist/
