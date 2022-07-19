@@ -40,6 +40,16 @@ All the tests were made with pyTest. Please refer to their doc for all the optio
 
 To run all the tests, use : `poetry run pytest .` (or `pytest .`)
 
+# Results : 
+With the finetuned model I can get almost 100% of accuracy by having a threshold (above 0.5 is passive, under is active). We can see the score results here : 
+[Results](./results.png)
+
+Model can still be trained and gain performance but overall, the raw accuracy is around 70-80% while the thresholded one is almost 100%. 
+
+I can make all the training metrics available if needed (it's on weight and biases). 
+
+A request to the server is done in 15ms (wall time & locally) which is good enough for a poc.
+
 # Thoughts 
 ## Classifier 
 - There is a small bias in the data : most of the passive sentences are longer than the non-passive ones. 
