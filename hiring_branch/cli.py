@@ -112,20 +112,25 @@ def compute_passive_stats(folder: FolderType):
 # TODO make an attrs to click options converter (I need to finish it)
 @cli.command()
 @click.option(
-    "--backbone", "-b", type=str, required=True, help="The backbone model name."
+    "--backbone",
+    "-b",
+    type=str,
+    required=True,
+    help="The huggingface backbone model name.",
+    default="bert-base-uncased",
 )
 @click.option(
     "--device",
     "-d",
     type=click.Choice(["-1"] + list(str(gpu_idx) for gpu_idx in range(device_count()))),
     required=True,
-    help="The device on which to train.",
+    help="The device (gpu number or -1 for cpu) on which to train.",
 )
 @click.option(
     "--checkpoint",
     "-c",
     required=False,
-    help="The checkpoint to load.",
+    help="The weight and biases or S3 bucket checkpoint to load.",
 )
 def train_model(backbone: str, device: str, checkpoint: Optional[str]):
     """
