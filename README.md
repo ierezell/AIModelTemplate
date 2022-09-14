@@ -1,9 +1,9 @@
 # Description
-A small project for the SENIOR NLP ENGINEER position at HiringBranch.  
+A small project for the SENIOR NLP ENGINEER position at CompagnyXYZ (obfuscated name)
 
 # How to run
 ## Installation
-- Clone the project. `git clone http://github.com/ierezell/hiring_branch`
+- Clone the project. `git clone http://github.com/ierezell/CompagnyXYZTakeHomeAssessment`
 - Then from the project root :
 
 ### With pip 
