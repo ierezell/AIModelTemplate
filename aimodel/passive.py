@@ -1,7 +1,7 @@
 import spacy
 from spacy.matcher import Matcher
 
-from hiring_branch.pos import PosType
+from aimodel.pos import PosType
 
 nlp = spacy.load("en_core_web_lg")
 
@@ -14,7 +14,6 @@ def is_passive_sentence_rule_base(tokens: list[tuple[str, PosType]]):
 
 
 def is_passive_sentence(sentence: str):
-
     matcher = Matcher(nlp.vocab)
     passive_rule = [
         {"DEP": {"IN": ["nsubjpass", "xcomp", "aux"]}, "OP": "*"},

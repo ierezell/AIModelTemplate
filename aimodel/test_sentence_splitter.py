@@ -1,8 +1,7 @@
-from hiring_branch.sentence_splitter import split_sentence
+from aimodel.sentence_splitter import split_sentence
 
 
 def test_complex_sentence():
-
     sentence = "Mr. Smith bought cheapsite.com for 1.5 million dollars, i.e.   he paid a lot   for it.    Did he mind! !!  !! Maybe not ?Adam Jones Jr. thinks he didn't... In any case, this isn't true!... Well, with a probability of .9! It isn't."
     splitted_sentences = split_sentence(sentence)
     assert splitted_sentences == [

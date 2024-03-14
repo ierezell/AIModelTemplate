@@ -1,0 +1,4 @@
+.vscode
+.github
+.venv
+.pre-commit-config.yaml

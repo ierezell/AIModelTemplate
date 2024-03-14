@@ -1,13 +1,12 @@
 import os
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import Self, TypedDict, cast
 
 import torch
 from pytorch_lightning import LightningDataModule
 from torch import Tensor
 from torch.cuda import is_available as is_gpu_available
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.dataloader import DataLoader
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
@@ -17,10 +16,8 @@ class PassiveItem(TypedDict):
 
 
 class PassiveDataset(Dataset[PassiveItem]):
-    def __init__(
-        self,
-        data_folder: Path,
-    ) -> None:
+    def __init__(self: Self, data_folder: Path) -> None:
+        super().__init__()
         self.data: list[PassiveItem] = []
 
         with open(data_folder.joinpath("passive.txt")) as f:
@@ -34,23 +31,23 @@ class PassiveDataset(Dataset[PassiveItem]):
                     self.data.append(PassiveItem(sentence=line.strip(), label=0))
                     number_non_passive -= 1
 
-    def __len__(self) -> int:
+    def __len__(self: Self) -> int:
         return len(self.data)
 
-    def __getitem__(self, idx: int) -> PassiveItem:
+    def __getitem__(self: Self, idx: int) -> PassiveItem:
         return self.data[idx]
 
 
 class PassiveCollator:
-    def __init__(self, tokenizer: PreTrainedTokenizerBase):
+    def __init__(self: Self, tokenizer: PreTrainedTokenizerBase):
         self.tokenizer = tokenizer
 
-    def __call__(self, input: list[PassiveItem]) -> tuple[Tensor, Tensor, Tensor]:
+    def __call__(self: Self, x: list[PassiveItem]) -> tuple[Tensor, Tensor, Tensor]:
         if not self.tokenizer.cls_token:
             self.tokenizer.cls_token = self.tokenizer.pad_token
 
         model_input = self.tokenizer(
-            [i["sentence"] for i in input],
+            [i["sentence"] for i in x],
             padding=True,
             truncation=True,
             max_length=512,
@@ -58,7 +55,8 @@ class PassiveCollator:
         )
 
         model_input["labels"] = torch.tensor(
-            [i["label"] for i in input], dtype=torch.float
+            [i["label"] for i in x],
+            dtype=torch.float,
         )
 
         return (
@@ -70,7 +68,7 @@ class PassiveCollator:
 
 class PassiveDatasetModule(LightningDataModule):
     def __init__(
-        self,
+        self: Self,
         *,
         train_folder: Path,
         valid_folder: Path,
@@ -87,7 +85,7 @@ class PassiveDatasetModule(LightningDataModule):
         self.valid_dataset = PassiveDataset(data_folder=valid_folder)
         self.collator = collator
 
-    def train_dataloader(self) -> DataLoader[PassiveItem]:
+    def train_dataloader(self: Self) -> DataLoader[PassiveItem]:
         train_loader: DataLoader[PassiveItem] = DataLoader(
             dataset=self.train_dataset,
             batch_size=self.batch_size,

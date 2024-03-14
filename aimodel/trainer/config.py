@@ -1,9 +1,8 @@
 from pathlib import Path
-from typing import Any, Optional
+from typing import Literal, Self
 
 from attr import Attribute, attrib, define
 from torch.cuda import is_available
-from typing_extensions import Literal
 
 
 @define
@@ -12,13 +11,13 @@ class Config:
     backbone: str
 
     # The weight and biases entity to use
-    entity: str = "ierezell"
+    entity: str = "MY_NAME"
 
     # The weight and biases project to use
-    project: str = "hiring_branch"
+    project: str = "MY_PROJECT"
 
     # The Weight and Biases run to load or save to
-    run_id: Optional[str] = attrib(default=None)
+    run_id: str | None = attrib(default=None)
 
     # The seed to replicate the run
     seed: int = attrib(default=42)
@@ -27,12 +26,12 @@ class Config:
     cuda_device: int = attrib(default=0 if is_available() else -1)
 
     @classmethod
-    def from_dict(cls, any_dict: dict[str, Any]) -> "Config":
+    def from_dict(cls: type[Self], any_dict: dict[str, object]) -> "Config":
         return cls(
-            backbone=any_dict.get("backbone", None),
-            entity=any_dict.get("entity", None),
-            project=any_dict.get("project", None),
-            run_id=any_dict.get("run_id", None),
+            backbone=any_dict.get("backbone"),
+            entity=any_dict.get("entity"),
+            project=any_dict.get("project"),
+            run_id=any_dict.get("run_id"),
             seed=any_dict.get("seed", 42),
             cuda_device=any_dict.get("cuda_device", -1),
         )
@@ -46,10 +45,10 @@ def _path_is_valid(instance: object, attribute: "Attribute[Path]", value: Path) 
         raise ValueError(f"{value} is not a directory")
 
     files = list(p.name for p in Path(value).iterdir())
-    if not "passive.txt" in files:
+    if "passive.txt" not in files:
         raise ValueError(f"{value} does not contains passive.txt")
 
-    if not "non_passive.txt" in files:
+    if "non_passive.txt" not in files:
         raise ValueError(f"{value} does not contains non_passive.txt")
 
 
@@ -77,7 +76,7 @@ class TrainConfig:
     gradient_accumulation_steps: int = attrib(default=4)
 
     # The number of steps to log
-    logging_steps: Optional[int] = attrib(
+    logging_steps: int | None = attrib(
         default=None,
     )
 
@@ -92,7 +91,7 @@ class TrainConfig:
     )
     precision: Literal[16, 32, 64] = attrib(default=32)
 
-    checkpoint: Optional[str] = attrib(default=None)
+    checkpoint: str | None = attrib(default=None)
 
     validation_check_every: int = attrib(
         default=1,

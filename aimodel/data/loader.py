@@ -48,9 +48,9 @@ def save_sentences(
     with open(Path(__file__).parent.joinpath(folder, "passive.txt"), "w") as file:
         for line in passive_sentences:
             if line:
-                file.write(line + "\n")
+                _ = file.write(line + "\n")
 
     with open(Path(__file__).parent.joinpath(folder, "non_passive.txt"), "w") as file:
         for line in non_passive_sentences:
             if line:
-                file.write(line + "\n")
+                _ = file.write(line + "\n")

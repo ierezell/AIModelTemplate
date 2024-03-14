@@ -1,4 +1,4 @@
-from hiring_branch.pos import get_part_of_speech
+from aimodel.pos import get_part_of_speech
 
 
 def test_simple():

@@ -1,4 +1,4 @@
-from hiring_branch.passive import is_passive_sentence
+from aimodel.passive import is_passive_sentence
 
 
 def test_passive():

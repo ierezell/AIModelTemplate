@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from shutil import rmtree
 from tempfile import TemporaryDirectory, mkdtemp
-from typing import Any, Literal, Optional, cast
+from typing import Literal, Self, cast
 
 import torch
 from attr import asdict
@@ -14,7 +14,6 @@ from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBar
 from pytorch_lightning.callbacks.rich_model_summary import RichModelSummary
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.utilities.parsing import AttributeDict
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from rich import print
 from torch import Tensor, tensor
@@ -22,23 +21,20 @@ from torch.nn.functional import l1_loss
 from torch.optim.adamw import AdamW
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import DataLoader
-from torch.utils.data.dataloader import DataLoader
-from transformers.modeling_utils import PreTrainedModel
+from transformers import PretrainedConfig, PreTrainedModel
 from transformers.models.auto.modeling_auto import AutoModel
 from transformers.models.auto.tokenization_auto import AutoTokenizer
-from typing_extensions import Literal
 
-from hiring_branch.trainer.config import Config, TrainConfig
-from hiring_branch.trainer.loader import (
+from aimodel.trainer.config import Config, TrainConfig
+from aimodel.trainer.loader import (
     PassiveCollator,
     PassiveDatasetModule,
     PassiveItem,
 )
-from hiring_branch.trainer.utils import download_weights
+from aimodel.trainer.utils import download_weights
 
 os.environ["WANDB_LOG_MODEL"] = "true"
 os.environ["WANDB_WATCH"] = "all"
-# os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 Phases = Literal["train", "valid", "test"]
@@ -49,11 +45,10 @@ class PassiveClassifier(LightningModule):
     A PytorchLightning module for classifying passive vs non passive sentences
     """
 
-    def __del__(self) -> None:
+    def __del__(self: Self) -> None:
         rmtree(self.temp_dir)
 
-    def __init__(self, config: Config) -> None:
-        self.hparams: AttributeDict
+    def __init__(self: Self, config: Config) -> None:
         self.wandb_logger: WandbLogger
         self.config = config
         self.temp_dir: str = mkdtemp()
@@ -63,58 +58,51 @@ class PassiveClassifier(LightningModule):
         self.save_hyperparameters()
 
         self.tokenizer = AutoTokenizer.from_pretrained(config.backbone)
-        self.bert: PreTrainedModel = AutoModel.from_pretrained(config.backbone)
-        self.bert.eval()
+        self.bert = cast(PreTrainedModel, AutoModel.from_pretrained(config.backbone))
+        bert_config = cast(PretrainedConfig, self.bert.config)
+        _ = self.bert.eval()
         for param in self.bert.parameters():
             param.requires_grad = False
 
         self.clf = torch.nn.Sequential(
             torch.nn.Dropout(p=0.2),
-            torch.nn.Linear(
-                self.bert.config.hidden_size,
-                self.bert.config.hidden_size // 2,
-            ),
+            torch.nn.Linear(bert_config.hidden_size, bert_config.hidden_size // 2),
             torch.nn.Dropout(p=0.2),
             torch.nn.GELU(),
-            torch.nn.Linear(
-                self.bert.config.hidden_size // 2,
-                1,
-            ),
+            torch.nn.Linear(bert_config.hidden_size // 2, 1),
         )
         self.sigmoid = torch.nn.Sigmoid()
         self.clf_loss = torch.nn.BCEWithLogitsLoss()
-        # self.mse_loss = torch.nn.MSELoss()
 
         self.wandb_tables: dict[
-            Phases, list[tuple[list[str], list[float], list[float], list[float]]]
-        ] = {
-            "train": [],
-            "valid": [],
-        }
+            Phases,
+            list[tuple[list[str], list[float], list[float], list[float]]],
+        ] = {"train": [], "valid": []}
 
     def _log_metrics(
-        self,
+        self: Self,
         *,
         predictions: Tensor,
         references: Tensor,
         phase: Phases,
     ) -> None:
+        prediction_threshold = 0.5
         int_predictions = torch.where(
-            predictions > 0.5,
+            predictions > prediction_threshold,
             tensor([1.0], device=references.device),
             tensor([0.0], device=references.device),
         )
         score = l1_loss(int_predictions, references)
         score_logit = l1_loss(predictions, references)
         score_one_hot = (torch.sum(references) - torch.sum(int_predictions)) / len(
-            predictions
+            predictions,
         )
 
         self.log_dict({f"{phase}/score": score})
         self.log_dict({f"{phase}/score_one_hot": score_one_hot})
         self.log_dict({f"{phase}/score_logits": score_logit})
 
-    def configure_optimizers(self) -> Any:
+    def configure_optimizers(self: Self):
         """
         Configure the model optimizer and the learning rate scheduler
 
@@ -122,12 +110,11 @@ class PassiveClassifier(LightningModule):
         -------
         A dictionary usable by pytorch lightning, c.f : https://pytorch-lightning.readthedocs.io/en/latest/common/optimizers.html
         """
-        loaded_lr: Optional[float] = self.hparams.learning_rate
-        loaded_lr_decay: Optional[float] = self.hparams.learning_rate_decay
+        loaded_lr: float | None = self.hparams.learning_rate
+        loaded_lr_decay: float | None = self.hparams.learning_rate_decay
 
         if loaded_lr and loaded_lr_decay:
             optimizer = AdamW(self.clf.parameters(), lr=loaded_lr)
-            # optimizer = DeepSpeedCPUAdam(self.parameters(), lr=loaded_lr)
             lr_scheduler = ExponentialLR(optimizer=optimizer, gamma=loaded_lr_decay)
 
             return {
@@ -135,18 +122,17 @@ class PassiveClassifier(LightningModule):
                 "lr_scheduler": {
                     "scheduler": lr_scheduler,
                     "name": "linear_scheduler",
-                    # "monitor": "val/loss",
-                    # "strict": True,
                 },
             }
 
-        else:
-            raise AssertionError(
-                "Learning rate and learning rate decay needs to be defined"
-            )
+        msg = "Learning rate and learning rate decay needs to be defined"
+        raise AssertionError(msg)
 
     def forward(
-        self, input_ids: Tensor, attention_mask: Tensor, labels: Tensor
+        self: Self,
+        input_ids: Tensor,
+        attention_mask: Tensor,
+        labels: Tensor,
     ) -> tuple[Tensor, Tensor]:
         with torch.inference_mode():
             outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
@@ -157,11 +143,12 @@ class PassiveClassifier(LightningModule):
         loss = self.clf_loss(clf_output, labels)
         sig_clf_output = self.sigmoid(clf_output)
 
-        # loss = self.mse_loss(sig_clf_output, labels)
         return (sig_clf_output, loss)
 
     def training_step(
-        self, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int
+        self,
+        batch: tuple[Tensor, Tensor, Tensor],
+        batch_idx: int,
     ) -> STEP_OUTPUT:
         input_ids, attention_mask, labels = batch
         logits, loss = self.forward(input_ids, attention_mask, labels)
@@ -175,11 +162,12 @@ class PassiveClassifier(LightningModule):
 
         loader = cast(
             DataLoader[PassiveItem],
-            self.trainer._data_connector._train_dataloader_source.dataloader(),  # type:ignore
+            self.trainer._data_connector._train_dataloader_source.dataloader(),
         )
         if batch_idx % (len(loader) // 3) == 0:
+            prediction_threshold = 0.5
             int_predictions = torch.where(
-                logits > 0.5,
+                logits > prediction_threshold,
                 tensor([1.0], device=logits.device),
                 tensor([0.0], device=logits.device),
             )
@@ -189,20 +177,15 @@ class PassiveClassifier(LightningModule):
                     cast(list[float], logits.tolist()),
                     cast(list[float], int_predictions.tolist()),
                     cast(list[float], labels.tolist()),
-                )
+                ),
             )
 
         return loss
 
-    # def on_train_epoch_end(self) -> None:
-    #     self.wandb_logger.log_table(
-    #         key="train/examples",
-    #         columns=["Input", "Logits", "Output", "Expected"],
-    #         data=self.wandb_tables["train"],
-    #     )
-
     def validation_step(
-        self, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int
+        self: Self,
+        batch: tuple[Tensor, Tensor, Tensor],
+        batch_idx: int,
     ) -> None:
         """
         Same as the training step except that the model is freezed and
@@ -235,7 +218,7 @@ class PassiveClassifier(LightningModule):
                     cast(list[float], logits.tolist()),
                     cast(list[float], int_predictions.tolist()),
                     cast(list[float], labels.tolist()),
-                )
+                ),
             )
 
     # def on_validation_epoch_end(self) -> None:
@@ -264,7 +247,7 @@ class PassiveClassifier(LightningModule):
         trainer = Trainer(fast_dev_run=True)
         trainer.fit(model=self, datamodule=data_module)
 
-    def launch_train(self, train_config: TrainConfig) -> None:
+    def launch_train(self: Self, train_config: TrainConfig) -> None:
         if train_config.checkpoint:
             train_config.checkpoint = str(download_weights(train_config.checkpoint))
 
@@ -281,8 +264,6 @@ class PassiveClassifier(LightningModule):
             enable_checkpointing=True,
             default_root_dir="./runs",
             accelerator="gpu",
-            # devices=2,
-            # strategy="deepspeed_stage_2_offload",
             callbacks=[
                 RichProgressBar(),
                 RichModelSummary(max_depth=3),
@@ -290,16 +271,11 @@ class PassiveClassifier(LightningModule):
                     monitor="valid/score",
                     mode="min",
                     every_n_epochs=1,
-                    # save_on_train_epoch_end=True,
                 ),
                 LearningRateMonitor(),
             ],
-            gpus=[self.config.cuda_device],
-            # gpus=[0],
-            # accumulate_grad_batches=train_config.gradient_accumulation_steps,
             max_epochs=train_config.epochs,
             log_every_n_steps=train_config.logging_steps or 50,
-            # precision="bf16",
             precision=16 if train_config.precision == 16 else train_config.precision,
             check_val_every_n_epoch=train_config.validation_check_every,
         )
@@ -357,7 +333,7 @@ class PassiveClassifier(LightningModule):
             file_name = "model.onnx"
             quantized_file_name = "model_quantized.onnx"
             onnx_quantized_model_path = onnx_save_directory.joinpath(
-                quantized_file_name
+                quantized_file_name,
             )
             onnx_model_path = onnx_save_directory.joinpath(file_name)
             onnx_chad_model_path = onnx_save_directory.joinpath("model_chad.onnx")
@@ -365,7 +341,8 @@ class PassiveClassifier(LightningModule):
 
             tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
             model = ORTModelForFeatureExtraction.from_pretrained(
-                model_checkpoint, from_transformers=True
+                model_checkpoint,
+                from_transformers=True,
             )
 
             model.save_pretrained(onnx_save_directory, file_name=file_name)
@@ -377,7 +354,8 @@ class PassiveClassifier(LightningModule):
                 onnx_model_path=onnx_model_path,
                 onnx_quantized_model_output_path=onnx_quantized_model_path,
                 quantization_config=AutoQuantizationConfig.avx2(
-                    is_static=False, per_channel=True
+                    is_static=False,
+                    per_channel=True,
                 ),
             )
             del quantizer
@@ -387,13 +365,14 @@ class PassiveClassifier(LightningModule):
                 onnx_model_path=onnx_quantized_model_path,
                 onnx_optimized_model_output_path=onnx_chad_model_path,
                 optimization_config=OptimizationConfig(
-                    optimization_level=99, optimize_for_gpu=False
+                    optimization_level=99,
+                    optimize_for_gpu=False,
                 ),
             )
             del optimizer
 
             model = ORTModelForFeatureExtraction.from_pretrained(
-                onnx_chad_model_path.parent
+                onnx_chad_model_path.parent,
             )
             model.save_pretrained(model_file.parent.joinpath("bert"))
             tokenizer.save_pretrained(model_file.parent.joinpath("bert"))

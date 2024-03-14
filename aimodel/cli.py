@@ -7,11 +7,11 @@ from rich import print
 from rich.table import Table
 from torch.cuda import device_count
 
-from hiring_branch.data.loader import FolderType, load_corpus, save_sentences
-from hiring_branch.passive import is_passive_sentence
-from hiring_branch.sentence_splitter import split_sentence
-from hiring_branch.server import run_app
-from hiring_branch.trainer import Config, PassiveClassifier, TrainConfig
+from aimodel.data.loader import FolderType, load_corpus, save_sentences
+from aimodel.passive import is_passive_sentence
+from aimodel.sentence_splitter import split_sentence
+from aimodel.server import run_app
+from aimodel.trainer import Config, PassiveClassifier, TrainConfig
 
 
 @click.group()

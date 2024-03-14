@@ -2,7 +2,7 @@ from pathlib import Path
 
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-from hiring_branch.trainer.loader import PassiveCollator, PassiveDatasetModule
+from aimodel.trainer.loader import PassiveCollator, PassiveDatasetModule
 
 
 def test_loader():
@@ -19,12 +19,12 @@ def test_loader():
     )
     train_loader = dm.train_dataloader()
 
-    for (inputs, _, labels) in train_loader:
+    for inputs, _, labels in train_loader:
         assert inputs.size()[0] == 2
         assert labels.size() == (2,)
 
     valid_loader = dm.val_dataloader()
 
-    for (inputs, _, labels) in valid_loader:
+    for inputs, _, labels in valid_loader:
         assert inputs.size()[0] == 2
         assert labels.size() == (2,)

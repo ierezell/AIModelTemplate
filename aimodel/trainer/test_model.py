@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from hiring_branch.trainer.bert_model import PassiveClassifier
-from hiring_branch.trainer.config import Config, TrainConfig
+from aimodel.trainer.bert_model import PassiveClassifier
+from aimodel.trainer.config import Config, TrainConfig
 
 
 def test_model():
