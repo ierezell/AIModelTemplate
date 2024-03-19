@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, get_args
+from typing import get_args
 
 import click
 import numpy as np
@@ -15,15 +15,14 @@ from aimodel.trainer import Config, PassiveClassifier, TrainConfig
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """
     The main entry point to this project.
     """
-    pass
 
 
 @cli.command()
-def run_server():
+def run_server() -> None:
     """
     Run the FastApi server that serves the passive sentence classifier.
     """
@@ -39,9 +38,10 @@ def run_server():
     help="The folder to compute passive sentences from.",
     prompt=True,
 )
-def compute_passive(folder: FolderType):
+def compute_passive(folder: FolderType) -> None:
     """
-    Split a raw text file to passive and non-passive sentences and store it back to the same folder.
+    Split a raw text file to passive and non-passive sentences.
+    Then store it back to the same folder.
 
     Parameters
     ----------
@@ -70,9 +70,10 @@ def compute_passive(folder: FolderType):
     help="The folder to compute stats from.",
     prompt=True,
 )
-def compute_passive_stats(folder: FolderType):
+def compute_passive_stats(folder: FolderType) -> None:
     """
-    Compute the stats of the passive sentences in the given folder. Like mean, std, of sentence length etc.
+    Compute the stats of the passive sentences in the given folder.
+    Like mean, std, of sentence length etc.
 
     Parameters
     ----------
@@ -91,19 +92,23 @@ def compute_passive_stats(folder: FolderType):
     table.add_row("# Non Passive Sentences", str(len(non_passive_corpus)))
     table.add_row("Mean Length of Passive Sentences", str(np.mean(passive_lengths)))
     table.add_row(
-        "Mean Length of Non Passive Sentences", str(np.mean(non_passive_lengths))
+        "Mean Length of Non Passive Sentences",
+        str(np.mean(non_passive_lengths)),
     )
     table.add_row("Std Length of Passive Sentences", str(np.std(passive_lengths)))
     table.add_row(
-        "Std Length of Non Passive Sentences", str(np.std(non_passive_lengths))
+        "Std Length of Non Passive Sentences",
+        str(np.std(non_passive_lengths)),
     )
     table.add_row("Min Length of Passive Sentences", str(np.min(passive_lengths)))
     table.add_row(
-        "Min Length of Non Passive Sentences", str(np.min(non_passive_lengths))
+        "Min Length of Non Passive Sentences",
+        str(np.min(non_passive_lengths)),
     )
     table.add_row("Max Length of Passive Sentences", str(np.max(passive_lengths)))
     table.add_row(
-        "Max Length of Non Passive Sentences", str(np.max(non_passive_lengths))
+        "Max Length of Non Passive Sentences",
+        str(np.max(non_passive_lengths)),
     )
 
     print(table)
@@ -122,7 +127,7 @@ def compute_passive_stats(folder: FolderType):
 @click.option(
     "--device",
     "-d",
-    type=click.Choice(["-1"] + list(str(gpu_idx) for gpu_idx in range(device_count()))),
+    type=click.Choice(["-1"] + [str(gpu_idx) for gpu_idx in range(device_count())]),
     required=True,
     help="The device (gpu number or -1 for cpu) on which to train.",
 )
@@ -130,9 +135,30 @@ def compute_passive_stats(folder: FolderType):
     "--checkpoint",
     "-c",
     required=False,
+    default=None,
     help="The weight and biases or S3 bucket checkpoint to load.",
 )
-def train_model(backbone: str, device: str, checkpoint: Optional[str]):
+@click.option(
+    "--entity",
+    "-e",
+    required=False,
+    default=None,
+    help="The weight and biases entity to use.",
+)
+@click.option(
+    "--project",
+    "-p",
+    required=False,
+    default=None,
+    help="The weight and biases project to use.",
+)
+def train_model(
+    backbone: str,
+    device: str,
+    checkpoint: str | None,
+    entity: str,
+    project: str,
+) -> None:
     """
     Train a passive sentence classifier.
 
@@ -147,7 +173,14 @@ def train_model(backbone: str, device: str, checkpoint: Optional[str]):
     """
     device_idx = int(device)
 
-    model = PassiveClassifier(config=Config(backbone=backbone, cuda_device=device_idx))
+    model = PassiveClassifier(
+        config=Config(
+            backbone=backbone,
+            entity=entity,
+            project=project,
+            cuda_device=device_idx,
+        ),
+    )
 
     train_config = TrainConfig(
         train_folder=Path(__file__)
@@ -159,6 +192,7 @@ def train_model(backbone: str, device: str, checkpoint: Optional[str]):
         .expanduser()
         .resolve(),
         learning_rate=5e-3,
+        checkpoint=checkpoint,
         learning_rate_decay=0.90,
         epochs=30,
         warmup_steps=100,
@@ -168,7 +202,6 @@ def train_model(backbone: str, device: str, checkpoint: Optional[str]):
         train_batch_size=2,
         precision=32,
         validation_check_every=1,
-        checkpoint=None,
     )
 
     model.launch_train(train_config=train_config)
@@ -176,7 +209,7 @@ def train_model(backbone: str, device: str, checkpoint: Optional[str]):
 
 @cli.command()
 @click.option("--checkpoint", "-c", required=True, help="The checkpoint to load.")
-def optimize_model(checkpoint: str):
+def optimize_model(checkpoint: str) -> None:
     """
     Optimize a previously trained model to ONNX.
 

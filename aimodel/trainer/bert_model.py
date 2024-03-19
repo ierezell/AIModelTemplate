@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from shutil import rmtree
-from tempfile import TemporaryDirectory, mkdtemp
+from tempfile import mkdtemp
 from typing import Literal, Self, TypedDict, cast, override
 
 import torch
@@ -178,10 +178,7 @@ class PassiveClassifier(LightningModule):
             phase="train",
         )
 
-        loader = cast(
-            DataLoader[PassiveItem],
-            self.trainer._data_connector._train_dataloader_source.dataloader(),  # type: ignore[reportPrivateUsage]
-        )
+        loader = cast(DataLoader[PassiveItem], self.trainer.train_dataloader)
         if batch_idx % (len(loader) // 3) == 0:
             prediction_threshold = 0.5
             int_predictions = torch.where(
@@ -214,7 +211,7 @@ class PassiveClassifier(LightningModule):
         with torch.inference_mode():
             logits, loss = self.forward(input_ids, attention_mask, labels)
 
-        self.log("val/loss", loss)
+        self.log("valid/loss", loss)
         prediction_threshold = 0.5
         int_predictions = torch.where(
             logits > prediction_threshold,
@@ -227,10 +224,7 @@ class PassiveClassifier(LightningModule):
             phase="valid",
         )
 
-        loader = cast(
-            DataLoader[PassiveItem],
-            self.trainer._data_connector._val_dataloader_source.dataloader(),  # type:ignore[reportPrivateUsage]
-        )
+        loader = cast(DataLoader[PassiveItem], self.trainer.val_dataloaders)
         if batch_idx % (len(loader) // 3) == 0:
             self.wandb_tables["valid"].append(
                 (
@@ -275,7 +269,7 @@ class PassiveClassifier(LightningModule):
             train_config.checkpoint = str(download_weights(train_config.checkpoint))
 
         self.wandb_logger = WandbLogger(
-            project="hiring_branch",
+            project=self.config.project,
             log_model="all",
             entity=self.config.entity,
         )
@@ -286,7 +280,7 @@ class PassiveClassifier(LightningModule):
             logger=self.wandb_logger,
             enable_checkpointing=True,
             default_root_dir="./runs",
-            accelerator="gpu",
+            accelerator="auto",
             callbacks=[
                 RichProgressBar(),
                 RichModelSummary(max_depth=3),
@@ -337,9 +331,8 @@ class PassiveClassifier(LightningModule):
             checkpoint_file = checkpoint
         model = PassiveClassifier.load_from_checkpoint(str(checkpoint_file))
 
-        checkpoint_folder = Path(__file__).parent.parent.joinpath("models")
-        checkpoint_folder.mkdir(parents=True, exist_ok=True)
-        model_file = checkpoint_folder.joinpath("classifier.onnx")
+        models_folder = Path(__file__).parent.parent.joinpath("models")
+        models_folder.mkdir(parents=True, exist_ok=True)
         _ = model.clf.eval()
 
         max_bert_length = cast(int, model.bert.config.max_length)
@@ -348,52 +341,61 @@ class PassiveClassifier(LightningModule):
         torch.onnx.export(
             model.clf,
             torch.ones((max_bert_length, bert_embed_size)),
-            model_file.as_posix(),
+            models_folder.joinpath("classifier.onnx").as_posix(),
             export_params=True,
             input_names=["embedding"],
             output_names=["logits"],
             dynamic_axes={"embedding": {0: "batch_size"}},
         )
 
-        model_checkpoint = model.config.backbone
-        with TemporaryDirectory() as tmp_dir:
-            tmp_dir_path = Path(tmp_dir)
-            onnx_save_directory = tmp_dir_path.joinpath("onnx")
-            file_name = "model.onnx"
-            onnx_chad_model_path = onnx_save_directory.joinpath("model_chad.onnx")
+        optimizer_folder = models_folder.joinpath("optimizer")
+        optimizer_folder.mkdir(parents=True, exist_ok=True)
 
-            tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
-            model = ORTModelForFeatureExtraction.from_pretrained(
-                model_checkpoint,
-                from_transformers=True,
-            )
+        model_backbone = model.config.backbone
 
-            _ = model.save_pretrained(onnx_save_directory, file_name=file_name)
-            _ = tokenizer.save_pretrained(onnx_save_directory)
-            del model
+        tokenizer = AutoTokenizer.from_pretrained(model_backbone)
+        model = ORTModelForFeatureExtraction.from_pretrained(
+            model_backbone,
+            from_transformers=True,
+        )
 
-            quantizer = ORTQuantizer.from_pretrained(model_checkpoint)
-            _ = quantizer.quantize(
-                quantization_config=AutoQuantizationConfig.avx2(
-                    is_static=False,
-                    per_channel=True,
-                ),
-                save_dir=onnx_save_directory,
-            )
-            del quantizer
+        _ = model.save_pretrained(optimizer_folder, file_name="model.onnx")
+        _ = tokenizer.save_pretrained(optimizer_folder)
+        del model
 
-            optimizer = ORTOptimizer.from_pretrained(model_checkpoint)
-            _ = optimizer.optimize(
-                optimization_config=OptimizationConfig(
-                    optimization_level=99,
-                    optimize_for_gpu=False,
-                ),
-                save_dir=onnx_save_directory,
-            )
-            del optimizer
+        quantizer = ORTQuantizer.from_pretrained(
+            optimizer_folder,
+            file_name="model.onnx",
+        )
+        _ = quantizer.quantize(
+            quantization_config=AutoQuantizationConfig.avx2(
+                is_static=False,
+                per_channel=True,
+            ),
+            file_suffix="quantized",
+            save_dir=optimizer_folder,
+        )
+        del quantizer
 
-            model = ORTModelForFeatureExtraction.from_pretrained(
-                onnx_chad_model_path.parent,
-            )
-            _ = model.save_pretrained(model_file.parent.joinpath("bert"))
-            _ = tokenizer.save_pretrained(model_file.parent.joinpath("bert"))
+        optimizer = ORTOptimizer.from_pretrained(
+            optimizer_folder,
+            file_names=["model_quantized.onnx"],
+        )
+        _ = optimizer.optimize(
+            optimization_config=OptimizationConfig(
+                optimization_level=99,
+                optimize_for_gpu=False,
+            ),
+            file_suffix="optimized",
+            save_dir=optimizer_folder,
+        )
+        del optimizer
+
+        model = ORTModelForFeatureExtraction.from_pretrained(
+            model_id=optimizer_folder,
+            local_files_only=True,
+            file_name="model_quantized_optimized.onnx",
+        )
+
+        _ = model.save_pretrained(models_folder.joinpath("bert"))
+        _ = tokenizer.save_pretrained(models_folder.joinpath("bert"))

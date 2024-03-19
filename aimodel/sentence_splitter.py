@@ -2,12 +2,12 @@ import re
 
 STOPS_REGEX = re.compile(
     #   no Mr./Jr./      no i.e.   or  1+ of .?!;  a space and a letter
-    r"(?<![A-Z][a-z]\.)(?<!\w\.\w\.)(?<=[.?!;])\s+(?=\w)"
+    r"(?<![A-Z][a-z]\.)(?<!\w\.\w\.)(?<=[.?!;])\s+(?=\w)",
 )
 PUNCTUATION_REGEX = re.compile(r"[?!]\w")  # Split sentences like "Hello!Adam replied."
 
 
-def split_sentence(string: str):
+def split_sentence(string: str) -> list[str]:
     sentences: list[str] = []
     cursor_index: int = 0
 

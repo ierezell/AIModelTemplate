@@ -3,4 +3,9 @@ runs/
 __pycache__
 .venv
 *.onnx
+*.ckpt
+
 dist/
+aimodel/models/bert/
+aimodel/models/optimizer
+aimodel/models/classifier.onnx

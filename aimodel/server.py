@@ -16,7 +16,7 @@ from torch import sigmoid
 from transformers import AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
 from transformers.pipelines.feature_extraction import FeatureExtractionPipeline
 
-logger = getLogger("Hiring Branch Logger")
+logger = getLogger("server")
 
 
 class Model:
@@ -82,11 +82,11 @@ class CustomApp(FastAPI):
 
 
 app = CustomApp(
-    title="hiring_branch",
+    title="ai_server",
     openapi_tags=[
         {
-            "name": "hiring branch",
-            "description": "hiring branch API for passive voice",
+            "name": "ai server",
+            "description": "A server that serves a classifier",
         },
     ],
 )
