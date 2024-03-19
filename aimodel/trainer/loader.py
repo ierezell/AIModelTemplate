@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Self, TypedDict, cast
+from typing import Self, TypedDict, cast, override
 
 import torch
 from pytorch_lightning import LightningDataModule
@@ -34,12 +34,14 @@ class PassiveDataset(Dataset[PassiveItem]):
     def __len__(self: Self) -> int:
         return len(self.data)
 
+    @override
     def __getitem__(self: Self, idx: int) -> PassiveItem:
         return self.data[idx]
 
 
 class PassiveCollator:
-    def __init__(self: Self, tokenizer: PreTrainedTokenizerBase):
+    def __init__(self: Self, tokenizer: PreTrainedTokenizerBase) -> None:
+        super().__init__()
         self.tokenizer = tokenizer
 
     def __call__(self: Self, x: list[PassiveItem]) -> tuple[Tensor, Tensor, Tensor]:
@@ -76,7 +78,7 @@ class PassiveDatasetModule(LightningDataModule):
         valid_batch_size: int,
         collator: PassiveCollator,
         seed: int = 42,
-    ):
+    ) -> None:
         super().__init__()
         self.batch_size = batch_size
         self.valid_batch_size = valid_batch_size
@@ -85,6 +87,7 @@ class PassiveDatasetModule(LightningDataModule):
         self.valid_dataset = PassiveDataset(data_folder=valid_folder)
         self.collator = collator
 
+    @override
     def train_dataloader(self: Self) -> DataLoader[PassiveItem]:
         train_loader: DataLoader[PassiveItem] = DataLoader(
             dataset=self.train_dataset,
@@ -98,7 +101,8 @@ class PassiveDatasetModule(LightningDataModule):
         )
         return train_loader
 
-    def val_dataloader(self) -> DataLoader[PassiveItem]:
+    @override
+    def val_dataloader(self: Self) -> DataLoader[PassiveItem]:
         valid_loader: DataLoader[PassiveItem] = DataLoader(
             dataset=self.valid_dataset,
             batch_size=self.valid_batch_size,

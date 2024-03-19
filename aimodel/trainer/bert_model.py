@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from shutil import rmtree
 from tempfile import TemporaryDirectory, mkdtemp
-from typing import Literal, Self, cast
+from typing import Literal, Self, TypedDict, cast, override
 
 import torch
 from attr import asdict
@@ -38,6 +38,21 @@ os.environ["WANDB_WATCH"] = "all"
 
 
 Phases = Literal["train", "valid", "test"]
+
+
+class SchedulerType(TypedDict):
+    scheduler: ExponentialLR
+    name: str
+
+
+class OptimizerType(TypedDict):
+    optimizer: AdamW
+    lr_scheduler: SchedulerType
+
+
+class HParamsType(TypedDict):
+    learning_rate: float | None
+    learning_rate_decay: float | None
 
 
 class PassiveClassifier(LightningModule):
@@ -102,7 +117,8 @@ class PassiveClassifier(LightningModule):
         self.log_dict({f"{phase}/score_one_hot": score_one_hot})
         self.log_dict({f"{phase}/score_logits": score_logit})
 
-    def configure_optimizers(self: Self):
+    @override
+    def configure_optimizers(self: Self) -> OptimizerType:  # type: ignore[reportIncompatibleMethodOverride]
         """
         Configure the model optimizer and the learning rate scheduler
 
@@ -110,8 +126,8 @@ class PassiveClassifier(LightningModule):
         -------
         A dictionary usable by pytorch lightning, c.f : https://pytorch-lightning.readthedocs.io/en/latest/common/optimizers.html
         """
-        loaded_lr: float | None = self.hparams.learning_rate
-        loaded_lr_decay: float | None = self.hparams.learning_rate_decay
+        loaded_lr = cast(float | None, self.hparams.get("learning_rate"))
+        loaded_lr_decay = cast(float | None, self.hparams.get("learning_rate_decay"))
 
         if loaded_lr and loaded_lr_decay:
             optimizer = AdamW(self.clf.parameters(), lr=loaded_lr)
@@ -128,7 +144,8 @@ class PassiveClassifier(LightningModule):
         msg = "Learning rate and learning rate decay needs to be defined"
         raise AssertionError(msg)
 
-    def forward(
+    @override
+    def forward(  # type: ignore[reportIncompatibleMethodOverride]
         self: Self,
         input_ids: Tensor,
         attention_mask: Tensor,
@@ -145,8 +162,9 @@ class PassiveClassifier(LightningModule):
 
         return (sig_clf_output, loss)
 
-    def training_step(
-        self,
+    @override
+    def training_step(  # type: ignore[reportIncompatibleMethodOverride]
+        self: Self,
         batch: tuple[Tensor, Tensor, Tensor],
         batch_idx: int,
     ) -> STEP_OUTPUT:
@@ -162,7 +180,7 @@ class PassiveClassifier(LightningModule):
 
         loader = cast(
             DataLoader[PassiveItem],
-            self.trainer._data_connector._train_dataloader_source.dataloader(),
+            self.trainer._data_connector._train_dataloader_source.dataloader(),  # type: ignore[reportPrivateUsage]
         )
         if batch_idx % (len(loader) // 3) == 0:
             prediction_threshold = 0.5
@@ -182,7 +200,8 @@ class PassiveClassifier(LightningModule):
 
         return loss
 
-    def validation_step(
+    @override
+    def validation_step(  # type: ignore[reportIncompatibleMethodOverride]
         self: Self,
         batch: tuple[Tensor, Tensor, Tensor],
         batch_idx: int,
@@ -196,8 +215,9 @@ class PassiveClassifier(LightningModule):
             logits, loss = self.forward(input_ids, attention_mask, labels)
 
         self.log("val/loss", loss)
+        prediction_threshold = 0.5
         int_predictions = torch.where(
-            logits > 0.5,
+            logits > prediction_threshold,
             tensor([1.0], device=logits.device),
             tensor([0.0], device=logits.device),
         )
@@ -209,7 +229,7 @@ class PassiveClassifier(LightningModule):
 
         loader = cast(
             DataLoader[PassiveItem],
-            self.trainer._data_connector._val_dataloader_source.dataloader(),  # type:ignore
+            self.trainer._data_connector._val_dataloader_source.dataloader(),  # type:ignore[reportPrivateUsage]
         )
         if batch_idx % (len(loader) // 3) == 0:
             self.wandb_tables["valid"].append(
@@ -221,14 +241,14 @@ class PassiveClassifier(LightningModule):
                 ),
             )
 
-    # def on_validation_epoch_end(self) -> None:
-    #     self.wandb_logger.log_table(
-    #         key="valid/examples",
-    #         columns=["Input", "Logits", "Output", "Expected"],
-    #         data=self.wandb_tables["valid"],
-    #     )
+    # ? def on_validation_epoch_end(self) -> None:
+    # ?     self.wandb_logger.log_table(
+    # ?         key="valid/examples",
+    # ?         columns=["Input", "Logits", "Output", "Expected"],
+    # ?         data=self.wandb_tables["valid"],
+    # ?     )
 
-    def sanity_check(self, train_config: TrainConfig) -> None:
+    def sanity_check(self: Self, train_config: TrainConfig) -> None:
         data_module = PassiveDatasetModule(
             train_folder=train_config.train_folder,
             valid_folder=train_config.valid_folder,
@@ -236,8 +256,11 @@ class PassiveClassifier(LightningModule):
             valid_batch_size=train_config.valid_batch_size,
             collator=PassiveCollator(tokenizer=self.tokenizer),
         )
-        self.hparams.learning_rate = train_config.learning_rate
-        self.hparams.learning_rate_decay = train_config.learning_rate_decay
+        self.hparams.__setattr__("learning_rate", train_config.learning_rate)
+        self.hparams.__setattr__(
+            "learning_rate_decay",
+            train_config.learning_rate_decay,
+        )
         self.wandb_logger = WandbLogger(
             offline=True,
             project="spellchecker",
@@ -255,10 +278,10 @@ class PassiveClassifier(LightningModule):
             project="hiring_branch",
             log_model="all",
             entity=self.config.entity,
-            # id=run_id,
         )
         self.wandb_logger.watch(self.clf, log_freq=50)
 
+        half_precision = 16
         trainer = Trainer(
             logger=self.wandb_logger,
             enable_checkpointing=True,
@@ -276,7 +299,11 @@ class PassiveClassifier(LightningModule):
             ],
             max_epochs=train_config.epochs,
             log_every_n_steps=train_config.logging_steps or 50,
-            precision=16 if train_config.precision == 16 else train_config.precision,
+            precision=(
+                16
+                if train_config.precision == half_precision
+                else train_config.precision
+            ),
             check_val_every_n_epoch=train_config.validation_check_every,
         )
 
@@ -288,8 +315,11 @@ class PassiveClassifier(LightningModule):
             collator=PassiveCollator(tokenizer=self.tokenizer),
         )
 
-        self.hparams.learning_rate = train_config.learning_rate
-        self.hparams.learning_rate_decay = train_config.learning_rate_decay
+        self.hparams.__setattr__("learning_rate", train_config.learning_rate)
+        self.hparams.__setattr__(
+            "learning_rate_decay",
+            train_config.learning_rate_decay,
+        )
         self.wandb_logger.log_hyperparams(asdict(train_config))
 
         print(f"[cyan]Parameters for training:[/cyan] \n{self.hparams}")
@@ -310,34 +340,27 @@ class PassiveClassifier(LightningModule):
         checkpoint_folder = Path(__file__).parent.parent.joinpath("models")
         checkpoint_folder.mkdir(parents=True, exist_ok=True)
         model_file = checkpoint_folder.joinpath("classifier.onnx")
-        model.clf.eval()
+        _ = model.clf.eval()
 
-        max_bert_length: int = model.bert.config.max_length
-        bert_embed_size: int = model.bert.config.hidden_size
+        max_bert_length = cast(int, model.bert.config.max_length)
+        bert_embed_size = cast(int, model.bert.config.hidden_size)
 
-        with open(model_file, "wb") as f:
-            torch.onnx.export(
-                model.clf,
-                torch.ones((max_bert_length, bert_embed_size)),
-                f,
-                export_params=True,
-                input_names=["embedding"],
-                output_names=["logits"],
-                dynamic_axes={"embedding": {0: "batch_size"}},
-            )
+        torch.onnx.export(
+            model.clf,
+            torch.ones((max_bert_length, bert_embed_size)),
+            model_file.as_posix(),
+            export_params=True,
+            input_names=["embedding"],
+            output_names=["logits"],
+            dynamic_axes={"embedding": {0: "batch_size"}},
+        )
 
         model_checkpoint = model.config.backbone
         with TemporaryDirectory() as tmp_dir:
             tmp_dir_path = Path(tmp_dir)
             onnx_save_directory = tmp_dir_path.joinpath("onnx")
             file_name = "model.onnx"
-            quantized_file_name = "model_quantized.onnx"
-            onnx_quantized_model_path = onnx_save_directory.joinpath(
-                quantized_file_name,
-            )
-            onnx_model_path = onnx_save_directory.joinpath(file_name)
             onnx_chad_model_path = onnx_save_directory.joinpath("model_chad.onnx")
-            feature = "default"
 
             tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
             model = ORTModelForFeatureExtraction.from_pretrained(
@@ -345,34 +368,32 @@ class PassiveClassifier(LightningModule):
                 from_transformers=True,
             )
 
-            model.save_pretrained(onnx_save_directory, file_name=file_name)
-            tokenizer.save_pretrained(onnx_save_directory)
+            _ = model.save_pretrained(onnx_save_directory, file_name=file_name)
+            _ = tokenizer.save_pretrained(onnx_save_directory)
             del model
 
-            quantizer = ORTQuantizer.from_pretrained(model_checkpoint, feature=feature)
-            quantizer.export(
-                onnx_model_path=onnx_model_path,
-                onnx_quantized_model_output_path=onnx_quantized_model_path,
+            quantizer = ORTQuantizer.from_pretrained(model_checkpoint)
+            _ = quantizer.quantize(
                 quantization_config=AutoQuantizationConfig.avx2(
                     is_static=False,
                     per_channel=True,
                 ),
+                save_dir=onnx_save_directory,
             )
             del quantizer
 
-            optimizer = ORTOptimizer.from_pretrained(model_checkpoint, feature=feature)
-            optimizer.export(
-                onnx_model_path=onnx_quantized_model_path,
-                onnx_optimized_model_output_path=onnx_chad_model_path,
+            optimizer = ORTOptimizer.from_pretrained(model_checkpoint)
+            _ = optimizer.optimize(
                 optimization_config=OptimizationConfig(
                     optimization_level=99,
                     optimize_for_gpu=False,
                 ),
+                save_dir=onnx_save_directory,
             )
             del optimizer
 
             model = ORTModelForFeatureExtraction.from_pretrained(
                 onnx_chad_model_path.parent,
             )
-            model.save_pretrained(model_file.parent.joinpath("bert"))
-            tokenizer.save_pretrained(model_file.parent.joinpath("bert"))
+            _ = model.save_pretrained(model_file.parent.joinpath("bert"))
+            _ = tokenizer.save_pretrained(model_file.parent.joinpath("bert"))

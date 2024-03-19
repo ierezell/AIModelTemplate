@@ -23,7 +23,7 @@
   "include": [
     "aimodel"
   ],
-  "pythonVersion": "3.11",
+  "pythonVersion": "3.12",
   "reportAssertAlwaysTrue": "error",
   "reportCallInDefaultInitializer": "error",
   "reportConstantRedefinition": "error",
